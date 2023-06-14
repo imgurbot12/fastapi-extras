@@ -42,6 +42,7 @@ class Database:
         """
         start database engine and build connection pool
         """
+        print(self.uri, self.kwargs)
         self.engine = create_engine(self.uri, **self.kwargs)
 
     def disconnect(self):
