@@ -83,4 +83,3 @@ class MemStore(Store):
             record = self.store[key]
             if record.expiration and record.expiration <= now:
                 del self.store[key]
-

@@ -3,17 +3,21 @@ FastAPI Simple Synchronous Getters
 """
 import inspect
 import functools
-from typing import Any, Callable, Type
+from typing import Any, Callable, Type, TypeVar
 
 from fastapi import Depends, Form, HTTPException, Query
 from fastapi.requests import Request
 from fastapi.datastructures import FormData
 from fastapi.exceptions import RequestValidationError
 
-from pydantic import BaseModel, ValidationError
+from pyderive.dataclasses import MISSING, FIELD_ATTR
+from pyderive.extensions.validate import BaseModel, FieldValidationError
 
 #** Variables **#
 __all__ = ['body', 'json', 'form', 'as_query', 'as_form', 'as_session']
+
+#: generic typehint for model object
+Model = TypeVar('Model', bound=BaseModel)
 
 #** Functions **#
 
@@ -24,25 +28,29 @@ def _depends(func: Callable):
         return Depends(func)
     return wrapper
 
-def _pydantic_depends(attr: Callable, model: Type[BaseModel]):
-    """generate pydantic form converter for specific attribute"""
+@functools.lru_cache(maxsize=None)
+def _model_depends(attr: Callable, model: Type[BaseModel]):
+    """generate base-model form converter for specific attribute"""
     # dynamically generate parameters which add Form(...) wrapper around value
     parameters = []
-    for field in model.__fields__.values():
+    for f in getattr(model, FIELD_ATTR):
+        default  = None if f.default is MISSING else f.default
+        required = not default \
+            or not (None if f.default_factory is MISSING else f.default_factory)
         parameters.append(
              inspect.Parameter(
-                 field.alias,
+                 f.name,
                  inspect.Parameter.POSITIONAL_ONLY,
-                 default=attr(...) if field.required else attr(field.default),
-                 annotation=field.outer_type_,
+                 default=attr(...) if required else attr(default),
+                 annotation=f.anno,
              )
          )
     # generate dynamic function to apply new signature parameters
     async def func(**data) -> model:
         try:
             return model(**data)
-        except ValidationError as err:
-            raise RequestValidationError(errors=err.raw_errors)
+        except FieldValidationError as err:
+            raise RequestValidationError(errors=err.errors())
     func.__signature__ = inspect.signature(func).replace(parameters=parameters)
     # return depends function to parse form as the model
     return Depends(func)
@@ -68,17 +76,17 @@ async def form(req: Request) -> FormData:
     """
     return await req.form()
 
-def as_query(model: Type[BaseModel]):
+def as_query(model: Type[Model]) -> Model:
     """
     generate dynamic depends function to parse query as pydantic model
     """
-    return _pydantic_depends(Query, model)
+    return _model_depends(Query, model)
 
-def as_form(model: Type[BaseModel]):
+def as_form(model: Type[Model]) -> Model:
     """
     generate dynamic depends function to parse form as pydantic model
     """
-    return _pydantic_depends(Form, model)
+    return _model_depends(Form, model)
 
 def as_session(model: Type[BaseModel], status: int = 401):
     """
@@ -88,7 +96,6 @@ def as_session(model: Type[BaseModel], status: int = 401):
         try:
             session = req.scope.get('session', {})
             return model(**session)
-        except ValidationError:
+        except FieldValidationError:
             raise HTTPException(status, 'invalid session state')
     return Depends(func)
-
