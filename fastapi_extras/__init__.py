@@ -13,6 +13,6 @@ __all__ = ['FastAPI']
 
 class FastAPI(BaseFastAPI):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.exception_handler(RequestValidationError)(pydantic_handler)

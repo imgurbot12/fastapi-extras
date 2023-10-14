@@ -5,7 +5,7 @@ with open("README.md", "r") as f:
 
 setup(
     name='fastapi-extras',
-    version='1.0.0',
+    version='2.0.0',
     license='MIT',
     author='Andrew Scott',
     author_email='imgurbot12@gmail.com',
