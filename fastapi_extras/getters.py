@@ -18,13 +18,13 @@ from pyderive.extensions.validate import BaseModel, FieldValidationError
 
 #** Variables **#
 __all__ = [
-    'body', 
-    'json', 
-    'form', 
+    'body',
+    'json',
+    'form',
 
-    'as_query', 
-    'as_form', 
-    'as_opt_session', 
+    'as_query',
+    'as_form',
+    'as_opt_session',
     'as_session'
 ]
 
@@ -44,7 +44,7 @@ def _depends(func: Callable):
     return wrapper
 
 @functools.lru_cache(maxsize=None)
-def _model_depends(attr: Callable, model: Type[BaseModel]):
+def _model_depends(attr: Callable, model: Type[Model]):
     """generate base-model form converter for specific attribute"""
     # dynamically generate parameters which add Form(...) wrapper around value
     parameters = []
@@ -60,12 +60,13 @@ def _model_depends(attr: Callable, model: Type[BaseModel]):
              )
          )
     # generate dynamic function to apply new signature parameters
-    async def func(**data) -> model:
+    async def func(**data) -> Model:
         try:
             return model(**data)
         except FieldValidationError as err:
             raise RequestValidationError(errors=err.errors())
-    func.__signature__ = inspect.signature(func).replace(parameters=parameters)
+    signature = inspect.signature(func).replace(parameters=parameters)
+    setattr(func, '__signature__', signature)
     # return depends function to parse form as the model
     return Depends(func)
 
@@ -133,8 +134,8 @@ def as_opt_session(model: Type[Model], key: Optional[str] = None):
     return Depends(func)
 
 def as_session(
-    model:  Type[Model], 
-    status: int = 401, 
+    model:  Type[Model],
+    status: int = 403,
     key:    Optional[str] = None
 ):
     """

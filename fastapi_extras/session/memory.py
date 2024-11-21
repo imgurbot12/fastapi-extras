@@ -1,46 +1,30 @@
 """
 FastAPI Session Store Backend Implementations
 """
-from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-from typing import Dict, Callable, Optional
+from typing import Dict, Optional
+
+from . import Store
 
 #** Variables **#
-__all__ = ['Store', 'MemStore']
+__all__ = ['MemStore']
 
 #** Classes **#
 
-class Store(ABC):
-    background_task: Optional[Callable] = None
-
-    @abstractmethod
-    async def has(self, key: str) -> bool:
-        raise NotImplementedError()
-
-    @abstractmethod
-    async def get(self, key: str) -> Optional[dict]:
-        raise NotImplementedError()
-
-    @abstractmethod
-    async def set(self,
-        key:  str,
-        data: Optional[dict]      = None, 
-        expr: Optional[timedelta] = None
-    ):
-        raise NotImplementedError()
-
-    @abstractmethod
-    async def delete(self, key: str):
-        raise NotImplementedError()
-
 @dataclass
 class MemRecord:
+    """
+    Internal Record Object for Tracking Memory-Stored Sessions
+    """
     __slots__ = ('data', 'expiration')
     data:       dict
     expiration: Optional[datetime]
 
 class MemStore(Store):
+    """
+    Memory-Based Storage for HTTP Session Data
+    """
     __slots__ = ('store', )
 
     def __init__(self):
@@ -59,8 +43,8 @@ class MemStore(Store):
             return
         return record.data
 
-    async def set(self, 
-        key:  str, 
+    async def set(self,
+        key:  str,
         data: Optional[dict]      = None,
         expr: Optional[timedelta] = None,
     ):
@@ -73,9 +57,9 @@ class MemStore(Store):
         record.data       = data or {}
         record.expiration = rexpr
 
-    async def delete(self, session_id: str):
-        if session_id in self.store:
-            del self.store[session_id]
+    async def delete(self, key: str):
+        if key in self.store:
+            del self.store[key]
 
     async def background_task(self):
         now = datetime.now()

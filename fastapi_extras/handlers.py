@@ -11,7 +11,7 @@ __all__ = ['pydantic_handler']
 
 #** Functions **#
 
-def pydantic_handler(req: Request, err: RequestValidationError):
+def pydantic_handler(_: Request, err: RequestValidationError):
     """restructure fastapi pydantic validation errors"""
     errors = {}
     for error in err.errors():
