@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'fastapi_extras3'
-version = '0.2.0'
+version = '0.3.0'
 requires-python = '>=3.8'
 dependencies = [
   'fastapi>=0.115.5'
@@ -30,5 +30,10 @@ classifiers = [
   'Programming Language :: Python :: 3.12',
 ]
 
+
 [project.urls]
 homepage = 'https://github.com/imgurbot12/fastapi-extras'
+
+
+[tool.setuptools.package-data]
+fastapi_extras = ["py.typed"]
