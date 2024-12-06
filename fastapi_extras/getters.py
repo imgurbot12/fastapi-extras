@@ -4,9 +4,9 @@ FastAPI Simple Synchronous Getters
 import inspect
 import logging
 import functools
-from typing import Any, Callable, Generator, Optional, Type, TypeVar
+from typing import Any, Awaitable, Callable, Generator, Optional, Type, TypeVar
 
-from fastapi import Depends, Form, HTTPException, Query
+from fastapi import Form, HTTPException, Query
 from fastapi.requests import Request
 from fastapi.datastructures import FormData
 from fastapi.exceptions import RequestValidationError
@@ -34,17 +34,13 @@ logger = logging.getLogger('fastapi.getters')
 #: generic typehint for model object
 Model = TypeVar('Model', bound=BaseModel)
 
+#: generic typehint for async callable
+AsyncCallback = Callable[..., Awaitable[Model]]
+
 #** Functions **#
 
-def _depends(func: Callable):
-    """decorator to add depends wrapper around function"""
-    @functools.wraps(func)
-    def wrapper():
-        return Depends(func)
-    return wrapper
-
 @functools.lru_cache(maxsize=None)
-def _model_depends(attr: Callable, model: Type[Model]):
+def _model_depends(attr: Callable, model: Type[Model]) -> AsyncCallback[Model]:
     """generate base-model form converter for specific attribute"""
     # dynamically generate parameters which add Form(...) wrapper around value
     parameters = []
@@ -67,48 +63,49 @@ def _model_depends(attr: Callable, model: Type[Model]):
             raise RequestValidationError(errors=err.errors())
     signature = inspect.signature(func).replace(parameters=parameters)
     setattr(func, '__signature__', signature)
-    # return depends function to parse form as the model
-    return Depends(func)
+    return func
 
-@_depends
 async def body(req: Request) -> bytes:
     """
     retrieve body from http-request
     """
     return await req.body()
 
-@_depends
 async def json(req: Request) -> Any:
     """
     retrieve json decoded body from http-request
     """
     return await req.json()
 
-@_depends
 async def form(req: Request) -> FormData:
     """
     retrieve form-data from http-request
     """
     return await req.form()
 
-def as_query(model: Type[Model]) -> Model:
+def as_query(model: Type[Model]) -> AsyncCallback[Model]:
     """
     generate dynamic depends function to parse query as pydantic model
     """
     return _model_depends(Query, model)
 
-def as_form(model: Type[Model]) -> Model:
+def as_form(model: Type[Model]) -> AsyncCallback[Model]:
     """
     generate dynamic depends function to parse form as pydantic model
     """
     return _model_depends(Form, model)
 
-def as_opt_session(model: Type[Model], key: Optional[str] = None):
+def as_opt_session(
+    model:    Type[Model],
+    key:      Optional[str] = None,
+    **kwargs: Any,
+) -> Callable[[Request], Generator[Optional[Model], None, None]]:
     """
     generate dynamic depends function to parse session-data as structured model
 
     :param model:  model to parse from session object
     :param key:    optional key for placement of model object in session
+    :param kwargs: additional arguments to pass during session parsing
     :return:       depends-function to retrieve model value
     """
     def func(req: Request) -> Generator[Optional[Model], None, None]:
@@ -118,7 +115,7 @@ def as_opt_session(model: Type[Model], key: Optional[str] = None):
             session = session.get(key, {})
         # supply session model to function
         try:
-            value = model.parse_obj(session)
+            value = model.parse_obj(session, **kwargs)
             yield value
         except FieldValidationError as e:
             logger.debug(f'{model.__name__} validation failed: {e.errors()}')
@@ -131,25 +128,27 @@ def as_opt_session(model: Type[Model], key: Optional[str] = None):
             req.scope['session'][key] = to_dict(value)
         else:
             req.scope['session'] = to_dict(value)
-    return Depends(func)
+    return func
 
 def as_session(
-    model:  Type[Model],
-    status: int = 403,
-    key:    Optional[str] = None
-):
+    model:    Type[Model],
+    status:   int           = 403,
+    key:      Optional[str] = None,
+    **kwargs: Any,
+) -> Callable[[Request], Generator[Model, None, None]]:
     """
     generate dynamic depends function to parse session-data as pydantic model
 
     :param model:  model to parse from session object
     :param status: status to raise on parsing failure
     :param key:    optional key for placement of model object in session
+    :param kwargs: additional arguments to pass during session parsing
     :return:       depends-function to retrieve model value
     """
-    inner_func = as_opt_session(model, key).dependency
+    inner_func = as_opt_session(model, key, **kwargs)
     def func(req: Request) -> Generator[Model, None, None]:
         for result in inner_func(req):
             if result is None:
                 raise HTTPException(status, 'invalid session state')
             yield result
-    return Depends(func)
+    return func
