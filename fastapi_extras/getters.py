@@ -11,9 +11,9 @@ from fastapi.requests import Request
 from fastapi.datastructures import FormData
 from fastapi.exceptions import RequestValidationError
 
-from pyderive.extensions.serde import to_dict
 from pyderive.abc import has_default
-from pyderive.dataclasses import MISSING, FIELD_ATTR
+from pyderive.dataclasses import MISSING, FIELD_ATTR, fields
+from pyderive.extensions.serde import to_dict
 from pyderive.extensions.validate import BaseModel, FieldValidationError
 
 #** Variables **#
@@ -98,36 +98,47 @@ def as_form(model: Type[Model]) -> AsyncCallback[Model]:
 def as_opt_session(
     model:    Type[Model],
     key:      Optional[str] = None,
+    reassign: bool          = True,
     **kwargs: Any,
 ) -> Callable[[Request], Generator[Optional[Model], None, None]]:
     """
     generate dynamic depends function to parse session-data as structured model
 
-    :param model:  model to parse from session object
-    :param key:    optional key for placement of model object in session
-    :param kwargs: additional arguments to pass during session parsing
-    :return:       depends-function to retrieve model value
+    :param model:    model to parse from session object
+    :param key:      optional key for placement of model object in session
+    :param reassign: re-assign values to session from model after request
+    :param kwargs:   additional arguments to pass during session parsing
+    :return:         depends-function to retrieve model value
     """
     def func(req: Request) -> Generator[Optional[Model], None, None]:
-        # retrieve session object from request scope
-        session = req.session
-        if key is not None:
-            session = session.get(key, {})
         # supply session model to function
+        session  = req.session if key is None else req.session.get(key, {})
+        is_model = isinstance(session, model)
         try:
-            value = model.parse_obj(session, **kwargs)
+            if is_model:
+                session.validate()
+                value = session
+            else:
+                value = model.parse_obj(session, **kwargs)
             yield value
         except FieldValidationError as e:
             logger.debug(f'{model.__name__} validation failed: {e.errors()}')
             yield None
             return
+        # skip re-validation and re-assignment if cleared or disabled
+        session = req.session if key is None else req.session.get(key, {})
+        if not reassign:
+            return
+        if all(field.name not in session for field in fields(model)):
+            return
         # re-validate and pass model back to storage after completion
         value.validate()
+        serial = value if is_model else to_dict(value)
         if key is not None:
             req.scope.setdefault('session', {})
-            req.scope['session'][key] = to_dict(value)
+            req.scope['session'][key] = serial
         else:
-            req.scope['session'] = to_dict(value)
+            req.scope['session'] = serial
     return func
 
 def as_session(

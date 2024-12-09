@@ -5,7 +5,7 @@ import random
 import string
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import Callable, Literal, Optional, Tuple
+from typing import Callable, List, Literal, Optional, Tuple
 
 from starlette.types import ASGIApp
 from starlette.requests import Request
@@ -82,7 +82,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
     """
     Alternative and Better Session Middleware for Starletee and FastAPI
     """
-    __slots__ = ('path', 'store', 'expiration', 'cookie', 'cookie_kw')
+    __slots__ = ('path', 'store', 'expiration', 'cookie', 'cookie_kw', 'skip_paths')
 
     def __init__(self,
         app:        ASGIApp,
@@ -95,6 +95,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
         domain:     Optional[str]       = None,
         store:      Optional[Store]     = None,
         expiration: Optional[timedelta] = timedelta(minutes=5),
+        skip_paths: List[str]           = [],
     ):
         """
         :param app:        asgi app that gets passed for middleware
@@ -112,6 +113,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
         self.path       = path
         self.store      = store or MemStore()
         self.expiration = expiration
+        self.skip_paths = skip_paths
         self.cookie     = cookie
         self.cookie_kw  = dict(
             path=path,
@@ -137,6 +139,9 @@ class SessionMiddleware(BaseHTTPMiddleware):
         """
         # skip processing if path is not is not in uri prefix
         if not request.url.path.startswith(self.path):
+            return await call_next(request)
+        # skip processing if path matches a skip-path
+        if any(request.url.path.startswith(path) for path in self.skip_paths):
             return await call_next(request)
         # lookup session-id if exists and assign session
         sess_id   = request.cookies.get(self.cookie)
